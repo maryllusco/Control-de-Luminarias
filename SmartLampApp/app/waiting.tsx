@@ -1,26 +1,32 @@
+import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-  View,
-  Text,
   ActivityIndicator,
   Button,
   StyleSheet,
+  Text,
+  View,
 } from "react-native";
-import { router } from "expo-router";
+import { conectarMQTT, desconectarMQTT } from "../services/mqtt";
 
 export default function WaitingScreen() {
   const [timeout, setTimeoutReached] = useState(false);
 
   useEffect(() => {
-    // En el futuro acá nos vamos a suscribir al MQTT
+    conectarMQTT(() => {
+      router.replace("/control");
+    });
 
     const timer = setTimeout(() => {
       setTimeoutReached(true);
     }, 45000);
 
-    return () => clearTimeout(timer);
-  }, []);
+    return () => {
+      clearTimeout(timer);
 
+      desconectarMQTT();
+    };
+  }, []);
   if (timeout) {
     return (
       <View style={styles.container}>
@@ -44,17 +50,11 @@ export default function WaitingScreen() {
     <View style={styles.container}>
       <ActivityIndicator size="large" color="#007AFF" />
 
-      <Text style={styles.title}>
-        Configurando dispositivo...
-      </Text>
+      <Text style={styles.title}>Configurando dispositivo...</Text>
 
-      <Text style={styles.text}>
-        Esperando respuesta del ESP32.
-      </Text>
+      <Text style={styles.text}>Esperando respuesta del ESP32.</Text>
 
-      <Text style={styles.text}>
-        Esto puede tardar hasta 45 segundos.
-      </Text>
+      <Text style={styles.text}>Esto puede tardar hasta 45 segundos.</Text>
     </View>
   );
 }

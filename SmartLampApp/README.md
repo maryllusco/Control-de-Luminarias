@@ -1,50 +1,201 @@
-# Welcome to your Expo app 👋
+#include <WiFi.h>
+#include <WebServer.h>
+#include <PubSubClient.h>
+#include <Preferences.h>
+#include <ArduinoJson.h>
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+const char* AP_SSID = "SmartLamp_Config";
+const char* AP_PASSWORD = "12345678";
 
-## Get started
+WebServer server(80);
 
-1. Install dependencies
+const int LED_PIN = 2;
+Preferences preferences;
 
-   ```bash
-   npm install
-   ```
+String wifiSSID = "";
+String wifiPassword = "";
+String token = "";
 
-2. Start the app
+bool configurado = false;
+bool intentandoConexion = false;
+const char\* MQTT_SERVER = "10.56.13.15";
+const int MQTT_PORT = 1883;
 
-   ```bash
-   npx expo start
-   ```
+WiFiClient espClient;
+PubSubClient mqttClient(espClient);
 
-In the output, you'll find options to open the app in a
+void conectarWiFi() {
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+Serial.println("Cambiando a modo STA...");
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+WiFi.softAPdisconnect(true);
+WiFi.mode(WIFI_STA);
 
-## Get a fresh project
+WiFi.begin(wifiSSID.c_str(), wifiPassword.c_str());
 
-When you're ready, run:
+unsigned long inicio = millis();
 
-```bash
-npm run reset-project
-```
+while (WiFi.status() != WL_CONNECTED && millis() - inicio < 45000) {
+delay(500);
+Serial.print(".");
+}
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+if (WiFi.status() == WL_CONNECTED) {
 
-## Learn more
+    Serial.println();
+    Serial.println("WiFi conectado");
+    Serial.print("IP: ");
 
-To learn more about developing your project with Expo, look at the following resources:
+conectarMQTT();
+Serial.println(WiFi.localIP());
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+} else {
 
-## Join the community
+    Serial.println();
+    Serial.println("Error: Timeout de conexión");
 
-Join our community of developers creating universal apps.
+    WiFi.mode(WIFI_AP);
+    WiFi.softAP(AP_SSID, AP_PASSWORD);
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+    Serial.println("Volviendo al modo AP");
+
+}
+
+}
+void callback(char* topic, byte* payload, unsigned int length) {
+
+String mensaje = "";
+
+for (int i = 0; i < length; i++) {
+mensaje += (char)payload[i];
+}
+
+Serial.print("Mensaje recibido: ");
+Serial.println(mensaje);
+
+if (mensaje.indexOf("\"cmd\":\"ON\"") >= 0) {
+digitalWrite(LED_PIN, HIGH);
+Serial.println("LED ENCENDIDO");
+}
+
+if (mensaje.indexOf("\"cmd\":\"OFF\"") >= 0) {
+digitalWrite(LED_PIN, LOW);
+Serial.println("LED APAGADO");
+}
+
+}
+
+void conectarMQTT() {
+
+mqttClient.setServer(MQTT_SERVER, MQTT_PORT);
+mqttClient.setCallback(callback);
+
+while (!mqttClient.connected()) {
+
+    Serial.println("Conectando al Broker MQTT...");
+
+    if (mqttClient.connect("ESP32_LAMP")) {
+
+      Serial.println("MQTT conectado");
+
+      mqttClient.subscribe("lamps/device1/cmd");
+
+      mqttClient.publish(
+        "lamps/device1/status",
+        "{\"status\":\"OK\"}"
+      );
+
+    } else {
+
+      Serial.print("Error MQTT: ");
+      Serial.println(mqttClient.state());
+
+      delay(2000);
+
+    }
+
+}
+
+}
+
+void setup() {
+
+Serial.begin(115200);
+
+pinMode(LED_PIN, OUTPUT);
+digitalWrite(LED_PIN, LOW);
+
+WiFi.mode(WIFI_AP);
+
+bool ok = WiFi.softAP(AP_SSID, AP_PASSWORD);
+
+Serial.println("================================");
+Serial.println("Modo AP iniciado");
+
+Serial.print("AP iniciado: ");
+Serial.println(ok ? "SI" : "NO");
+
+Serial.print("SSID: ");
+Serial.println(AP_SSID);
+
+Serial.print("IP: ");
+Serial.println(WiFi.softAPIP());
+
+Serial.print("Canal: ");
+Serial.println(WiFi.channel());
+
+Serial.print("Clientes conectados: ");
+Serial.println(WiFi.softAPgetStationNum());
+
+Serial.println("================================");
+
+server.on("/", HTTP_GET, []() {
+server.send(200, "text/plain", "ESP32 Smart Lamp");
+});
+server.on("/config", HTTP_POST, []() {
+
+    if (!server.hasArg("plain")) {
+        server.send(400, "text/plain", "JSON faltante");
+        return;
+    }
+
+    DynamicJsonDocument doc(256);
+
+    deserializeJson(doc, server.arg("plain"));
+
+    wifiSSID = doc["ssid"].as<String>();
+    wifiPassword = doc["password"].as<String>();
+    token = doc["token"].as<String>();
+
+    preferences.begin("config", false);
+    preferences.putString("ssid", wifiSSID);
+    preferences.putString("pass", wifiPassword);
+    preferences.putString("token", token);
+    preferences.end();
+
+    configurado = true;
+
+    server.send(200, "application/json", "{\"status\":\"OK\"}");
+
+});
+
+server.begin();
+
+Serial.println("Servidor HTTP iniciado");
+}
+
+void loop() {
+
+server.handleClient();
+
+if (configurado && !intentandoConexion) {
+
+    intentandoConexion = true;
+
+    conectarWiFi();
+
+}
+
+mqttClient.loop();
+
+}

@@ -1,8 +1,34 @@
-import { View, Text, Pressable, StyleSheet } from "react-native";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  conectarMQTT,
+  desconectarMQTT,
+  publicarComando,
+} from "../services/mqtt";
 
 export default function ControlScreen() {
   const [estado, setEstado] = useState("APAGADA");
+  const [broker, setBroker] = useState("Conectando...");
+
+  useEffect(() => {
+    conectarMQTT();
+
+    setBroker("Conectado");
+
+    return () => {
+      desconectarMQTT();
+    };
+  }, []);
+
+  const encender = () => {
+    publicarComando("ON");
+    setEstado("ENCENDIDA");
+  };
+
+  const apagar = () => {
+    publicarComando("OFF");
+    setEstado("APAGADA");
+  };
 
   return (
     <View style={styles.container}>
@@ -12,33 +38,19 @@ export default function ControlScreen() {
 
       <Text style={styles.estado}>{estado}</Text>
 
-      <Pressable
-        style={styles.onButton}
-        onPress={() => {
-          setEstado("ENCENDIDA");
-          // publicarComando("ON")
-        }}
-      >
+      <Pressable style={styles.onButton} onPress={encender}>
         <Text style={styles.buttonText}>ENCENDER</Text>
       </Pressable>
 
-      <Pressable
-        style={styles.offButton}
-        onPress={() => {
-          setEstado("APAGADA");
-          // publicarComando("OFF")
-        }}
-      >
+      <Pressable style={styles.offButton} onPress={apagar}>
         <Text style={styles.buttonText}>APAGAR</Text>
       </Pressable>
 
-      <Text style={styles.info}>
-        Broker: Desconectado
-      </Text>
+      <Text style={styles.info}>Broker MQTT: {broker}</Text>
 
-      <Text style={styles.info}>
-        Dispositivo: Sin conexión
-      </Text>
+      <Text style={styles.info}>Comandos: lamps/device1/cmd</Text>
+
+      <Text style={styles.info}>Estado: lamps/device1/status</Text>
     </View>
   );
 }
@@ -59,6 +71,7 @@ const styles = StyleSheet.create({
 
   label: {
     fontSize: 18,
+    marginBottom: 10,
   },
 
   estado: {
@@ -87,10 +100,12 @@ const styles = StyleSheet.create({
     color: "white",
     textAlign: "center",
     fontWeight: "bold",
+    fontSize: 16,
   },
 
   info: {
     marginTop: 10,
     color: "gray",
+    fontSize: 14,
   },
 });
